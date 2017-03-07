@@ -20,10 +20,10 @@ SMPS_PER_FRAME  equ     204
 
 startpr di
         ld      hl,5800h
-        ld      de,5801h
-        ld      bc,0ffh
-        ld      (hl),3fh
-        ldir
+        ld      a,3fh
+.l1:    ld      (hl),a
+        inc     l
+        jp      nz,.l1
     if 0 ; USE_ROM_LOADER != 0
         ld      hl,5b00h
         ld      de,4500h
@@ -43,25 +43,44 @@ startpr di
         ld      b,0ffh
         in      a,(c)
         cp      h
-        jr      nz,.l1
+        jr      nz,.l2
         out     (c),l
         in      a,(c)
         inc     a
-        jr      z,.l2
-.l1:    ld      a,3eh                   ;=LD A,n
+        jr      z,.l3
+.l2:    ld      a,3eh                   ;=LD A,n
         ld      (cpYMtbl),a             ;no YM detected
-.l2:    xor     a
+.l3:    xor     a
         out     (c),a
         ld      b,0bfh
         out     (c),a
-        ld      hl,escprsx
+speccycheck
+        ld      hl,0d000h
+        ld      a,(5b5ch)
+        and     07h
+        ld      e,a
+        out     (0fdh),a
+        ld      (hl),01h
+        dec     a
+        and     07h
+        out     (0fdh),a        ;01
+        ld      (hl),02h
+        ld      a,e
+        out     (0fdh),a
+        ld      a,(hl)
+        dec     a
+        jr      z,notplus       ;128, +2, Pentagon128
+        ld      hl,pages+5      ;+2a, +3, Scorpion
+convpag ld      a,(hl)
+        or      50h
+        ld      (hl),a
+        dec     l
+        jp      p,convpag
+        ld      a,0cdh          ;= CALL
+        ld      (speccyplus),a
+notplus ld      hl,escprsx
         push    hl
-        ld      hl,speccycheck
-        push    hl
-        exx
-        ld      hl,screen+1
-        ld      e,80h
-        exx
+        ld      hl,screen
         ld      de,convertC64Img
         push    de
         jp      decompressData
@@ -311,7 +330,7 @@ decompressDataBlock:
         call  read2Bits                 ; read flag bits
         srl   a
         push  af                        ; save last block flag (A=1, Z=0: yes)
-        jr    nc, .l14                  ; uncompressed data ?
+        jr    nc, .l14                  ; uncompressed data?
         call  read2Bits                 ; get prefix size for >= 3 byte matches
         push  de                        ; save decompressed data write address
         push  hl
@@ -348,11 +367,11 @@ decompressDataBlock:
         pop   hl
         ld    a, l
         cp    low offs1DecodeTable
-        jr    z, .l3                    ; end of length decode table ?
+        jr    z, .l3                    ; end of length decode table?
         cp    low offs2DecodeTable
-        jr    z, .l3                    ; end of offset table for length = 1 ?
+        jr    z, .l3                    ; end of offset table for length = 1?
         cp    low offs3DecodeTable
-        jr    z, .l3                    ; end of offset table for length = 2 ?
+        jr    z, .l3                    ; end of offset table for length = 2?
         djnz  .l4                       ; continue until all tables are read
         pop   de                        ; DE = decompressed data write address
         jr    .l9                       ; jump to main decompress loop
@@ -370,7 +389,7 @@ decompressDataBlock:
 .l9:    exx
 .l10:   ld    a, c                      ; check the data size remaining:
         or    b
-        jr    z, .l7                    ; end of block ?
+        jr    z, .l7                    ; end of block?
         dec   bc
         sla   e                         ; read flag bit
     if SIZE_OPTIMIZED == 0
@@ -381,7 +400,7 @@ decompressDataBlock:
     else
         call  z, readCompressedByte
     endif
-.l11:   jr    nc, .l8                   ; literal byte ?
+.l11:   jr    nc, .l8                   ; literal byte?
         ld    a, 0f8h
 .l12:   sla   e                         ; read length prefix bits
     if SIZE_OPTIMIZED == 0
@@ -392,7 +411,7 @@ decompressDataBlock:
     else
         call  z, readCompressedByte
     endif
-.l13:   jr    nc, copyLZMatch           ; LZ77 match ?
+.l13:   jr    nc, copyLZMatch           ; LZ77 match?
         inc   a
         jr    nz, .l12
         exx                             ; literal sequence:
@@ -417,9 +436,9 @@ copyLZMatch:
         call  readEncodedValue          ; decode match length
         ld    c, 20h                    ; C = 20h: not readBits routine
         or    h                         ; if length <= 255, then A and H are 0
-        jr    nz, .l8                   ; length >= 256 bytes ?
+        jr    nz, .l8                   ; length >= 256 bytes?
         ld    b, l
-        djnz  .l7                       ; length > 1 byte ?
+        djnz  .l7                       ; length > 1 byte?
         ld    b, low offs1DecodeTable   ; no, read 2 prefix bits
 .l1:    ld    a, 40h                    ; read2Bits routine if C is 0
 .l2:    exx                             ; readBits routine if C is 0
@@ -464,7 +483,7 @@ copyLZMatch:
         ld    h, high 0c000h
         ldir
         jr    decompressDataBlock.l9
-.l7:    djnz  .l8                       ; length > 2 bytes ?
+.l7:    djnz  .l8                       ; length > 2 bytes?
         ld    a, c                      ; no, read 3 prefix bits (C = 20h)
         ld    b, low offs2DecodeTable
         jr    .l2
@@ -527,6 +546,12 @@ readCompressedByte:
     endif
 
 decompressData:
+        push  hl
+        exx
+        pop   hl
+        inc   hl
+        ld    e, 80h
+        exx
 .l1:    call  decompressDataBlock
         jr    z, .l1
         ret
@@ -888,10 +913,7 @@ pgvalok ld      (endpage+1),a
         ld      a,02h
         ld      bc,7ffdh
         out     (c),a
-        exx
-        ld      hl,sidSynthPacked+1
-        ld      e,80h
-        exx
+        ld      hl,sidSynthPacked
         ld      de,0c000h
         call    decompressData
         xor     a
@@ -902,7 +924,7 @@ pgvalok ld      (endpage+1),a
         ld      bc,300h
 cpYMtbl ldir
 speccyplus
-        call    specpls
+        ld      de,specpls      ;CALL (CDh) if +2A/+3/Scorpion
         ld      de,triangletable
 
 ; DE = table start address
@@ -1036,35 +1058,9 @@ sidWaveTables:
 
 cod4200
         phase   4200h
-
 sidSynthPacked:
         incbin  "sidsynth.bin"
-speccycheck
-        ld      hl,0d000h
-        ld      a,(5b5ch)
-        and     07h
-        ld      e,a
-        out     (0fdh),a
-        ld      (hl),01h
-        dec     a
-        and     07h
-        out     (0fdh),a        ;01
-        ld      (hl),02h
-        ld      a,e
-        out     (0fdh),a
-        ld      a,(hl)
-        dec     a
-        ret     z               ;128, +2, Pentagon128
-        ld      hl,pages        ;+2a,+3, Scorpion
-        ld      b,06h
-convpag ld      a,(hl)
-        or      50h
-        ld      (hl),a
-        inc     hl
-        djnz    convpag
-        ld      a,0cdh
-        ld      (speccyplus),a
-        ret
+
 specpls ld      a,50h
         ld      (803dh+1),a
         ld      hl,813bh+1
