@@ -6,3 +6,5 @@ sid_dump: extracts raw SID register data from a PSID file, using 6502 CPU emulat
 sid_conv: converts the output of sid_dump to a simple format suitable for software synthesis on 8-bit computers. Envelopes are pre-rendered at a resolution of 5 bits per channel, only some of the features of the SID chip are implemented (basic waveforms, PWM and ring modulation). Combined waveforms, the sync effect, filtering and SID sample playback are not supported
 
 sid_dump and sid_conv are both licensed under the terms of the GNU GPL, version 2 or later. Building sid_dump requires the libplus4emu library and header files, while sid_conv uses libep128emu and libepcompress.
+
+sidbasicSP plays files converted by sid_conv on the Spectrum 128 and clones, the player and utilities were written by Noel Persa and Istvan Varga.
