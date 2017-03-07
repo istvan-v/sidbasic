@@ -11,12 +11,15 @@ TAPFILE = sidbasicSP.tap
 SJASM = sjasm
 EPCOMPRESS = ../../ep128emu/epcompress
 
-all: $(TZXFILE) # $(TAPFILE)
+all: $(TZXFILE) $(TAPFILE)
 
 $(TZXFILE): $(TAPEENC) loader.out sidbintSP_tzx.out
-	$(TAPEENC) $@ SIDBINT loader.out 0x4253 sidbintSP_tzx.out
+	$(TAPEENC) $@ SIDBASIC loader.out 0x4253 sidbintSP_tzx.out
 
-loader.out: loader.s
+$(TAPFILE): $(TAPEENC) taploader.out sidbintSP_tap.out
+	$(TAPEENC) -tap $@ SIDBASIC taploader.out sidbintSP_tap.out
+
+loader.out taploader.out: %.out: %.s
 	$(SJASM) $< $@
 
 sidbintSP_tzx.out: sidbintSP_tzx.s sidsynth.bin cod47scr.bin
