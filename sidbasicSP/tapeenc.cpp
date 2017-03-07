@@ -1,7 +1,25 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <string>
 #include <vector>
+
+static void tapEncodeBlock(std::vector< unsigned char >& outBuf,
+                           const std::vector< unsigned char >& inBuf,
+                           bool isHeader)
+{
+  size_t  n = inBuf.size() + 2;
+  outBuf.push_back((unsigned char) (n & 0xFF));         // length of data
+  outBuf.push_back((unsigned char) ((n >> 8) & 0xFF));
+  unsigned char chkSum = (isHeader ? 0x00 : 0xFF);
+  outBuf.push_back(chkSum);                             // block data
+  for (size_t i = 0; i < inBuf.size(); i++) {
+    chkSum = chkSum ^ inBuf[i];
+    outBuf.push_back(inBuf[i]);
+  }
+  outBuf.push_back(chkSum);                     // XOR checksum of block data
+}
 
 static void tzxEncodeBlockN(std::vector< unsigned char >& outBuf,
                             const std::vector< unsigned char >& inBuf,
@@ -72,88 +90,189 @@ static void tzxEncodeBlockT(std::vector< unsigned char >& outBuf,
     outBuf.push_back(0xD2);
 }
 
+static void loadFile(std::vector< unsigned char >& buf, const char *fileName)
+{
+  std::FILE *f = std::fopen(fileName, "rb");
+  if (!f) {
+    std::fprintf(stderr, " *** error opening input file \"%s\"\n", fileName);
+    std::exit(-1);
+  }
+  int     c;
+  while ((c = std::fgetc(f)) != EOF)
+    buf.push_back((unsigned char) (c & 0xFF));
+  std::fclose(f);
+  if (buf.size() < 1) {
+    std::fprintf(stderr, " *** empty input file \"%s\"\n", fileName);
+    std::exit(-1);
+  }
+}
+
 int main(int argc, char **argv)
 {
-  if (argc < 4) {
+  std::string   outFileName;
+  std::string   tapeName;
+  std::string   loaderFileName;
+  std::vector< std::string >  inFileNames;
+  std::vector< std::string >  inFileIDs;
+  bool    tapFormat = false;
+  bool    noLoader = false;
+  for (int i = 1; i < argc; i++) {
+    if (std::strcmp(argv[i], "-tzx") == 0) {
+      tapFormat = false;
+    }
+    else if (std::strcmp(argv[i], "-tap") == 0) {
+      tapFormat = true;
+    }
+    else if (std::strcmp(argv[i], "-ldr") == 0) {
+      noLoader = false;
+    }
+    else if (std::strcmp(argv[i], "-noldr") == 0) {
+      noLoader = true;
+    }
+    else if (std::strcmp(argv[i], "-h") == 0 ||
+             std::strcmp(argv[i], "-help") == 0 ||
+             std::strcmp(argv[i], "--help") == 0) {
+      break;
+    }
+    else {
+      for ( ; i < argc; i++) {
+        const char  *s = argv[i];
+        if (*s == '\0')
+          s = " ";
+        if (outFileName.empty())
+          outFileName = s;
+        else if (tapeName.empty() && !(noLoader && !tapFormat))
+          tapeName = s;
+        else if (loaderFileName.empty() && !noLoader)
+          loaderFileName = s;
+        else if (inFileIDs.size() <= inFileNames.size() && !tapFormat)
+          inFileIDs.push_back(std::string(s));
+        else
+          inFileNames.push_back(std::string(s));
+      }
+      break;
+    }
+  }
+  if (outFileName.empty() || inFileNames.size() < inFileIDs.size() ||
+      (loaderFileName.empty() && inFileNames.size() < 1)) {
     std::fprintf(stderr,
-                 "Usage: %s OUTFILE.TZX NAME LOADER.BIN [ID1 INFILE1 [...]]\n",
-                 argv[0]);
+                 "Usage: %s OUTFILE.TZX NAME LOADER.BIN [ID1 INFILE1 [...]]\n"
+                 "       %s -tap OUTFILE.TAP NAME LOADER.BIN [INFILE1 [...]]\n"
+                 "       %s -noldr OUTFILE.TZX ID1 INFILE1 [ID2 INFILE2...]\n"
+                 "       %s -tap -noldr OUTFILE.TAP NAME INFILE1 [...]\n",
+                 argv[0], argv[0], argv[0], argv[0]);
     return -1;
   }
-  std::vector< unsigned char >  inBuf;
+  std::vector< unsigned char >  loaderData;
+  std::vector< std::vector< unsigned char > > inFileData;
+  if (!loaderFileName.empty()) {
+    loaderData.resize(21, 0x00);
+    loadFile(loaderData, loaderFileName.c_str());
+    loaderData.push_back(0x0D);
+    loaderData[0] = 0x00;
+    loaderData[1] = 0x0A;               // line number
+    size_t  n = loaderData.size() - 4;  // line length
+    loaderData[2] = (unsigned char) (n & 0xFF);
+    loaderData[3] = (unsigned char) (n >> 8);
+    loaderData[4] = 0x20;
+    loaderData[5] = 0xF9;               // RANDOMIZE
+    loaderData[6] = 0xC0;               // USR
+    loaderData[7] = 0x32;               // "23776" (= 0x5CE0)
+    loaderData[8] = 0x33;
+    loaderData[9] = 0x37;
+    loaderData[10] = 0x37;
+    loaderData[11] = 0x36;
+    loaderData[12] = 0x0E;
+    loaderData[13] = 0x00;
+    loaderData[14] = 0x00;
+    loaderData[15] = 0xE0;              // loader start address = 0x5CE0
+    loaderData[16] = 0x5C;
+    loaderData[17] = 0x00;
+    loaderData[18] = 0x3A;              // ':'
+    loaderData[19] = 0xEA;              // REM
+    loaderData[20] = 0x20;
+  }
+  if (inFileNames.size() > 0) {
+    inFileData.resize(inFileNames.size());
+    for (size_t i = 0; i < inFileNames.size(); i++)
+      loadFile(inFileData[i], inFileNames[i].c_str());
+  }
   std::vector< unsigned char >  outBuf;
-  outBuf.push_back(0x5A);               // 'Z'
-  outBuf.push_back(0x58);               // 'X'
-  outBuf.push_back(0x54);               // 'T'
-  outBuf.push_back(0x61);               // 'a'
-  outBuf.push_back(0x70);               // 'p'
-  outBuf.push_back(0x65);               // 'e'
-  outBuf.push_back(0x21);               // '!'
-  outBuf.push_back(0x1A);               // ^Z
-  outBuf.push_back(0x01);               // major version
-  outBuf.push_back(0x0D);               // minor version
-  {
-    inBuf.resize(21);
-    std::FILE *f = std::fopen(argv[3], "rb");
-    while (true) {
-      int     c = std::fgetc(f);
-      if (c == EOF)
-        break;
-      inBuf.push_back((unsigned char) (c & 0xFF));
-    }
-    std::fclose(f);
-    inBuf.push_back(0x0D);
-    inBuf[0] = 0x00;
-    inBuf[1] = 0x0A;                    // line number
-    inBuf[2] = (unsigned char) ((inBuf.size() - 4) & 0xFF);     // line length
-    inBuf[3] = (unsigned char) ((inBuf.size() - 4) >> 8);
-    inBuf[4] = 0x20;
-    inBuf[5] = 0xF9;                    // RANDOMIZE
-    inBuf[6] = 0xC0;                    // USR
-    inBuf[7] = 0x32;                    // "23776" (= 0x5CE0)
-    inBuf[8] = 0x33;
-    inBuf[9] = 0x37;
-    inBuf[10] = 0x37;
-    inBuf[11] = 0x36;
-    inBuf[12] = 0x0E;
-    inBuf[13] = 0x00;
-    inBuf[14] = 0x00;
-    inBuf[15] = 0xE0;                   // loader start address = 0x5CE0
-    inBuf[16] = 0x5C;
-    inBuf[17] = 0x00;
-    inBuf[18] = 0x3A;                   // ':'
-    inBuf[19] = 0xEA;                   // REM
-    inBuf[20] = 0x20;
+  if (!tapFormat) {
+    outBuf.push_back(0x5A);             // 'Z'
+    outBuf.push_back(0x58);             // 'X'
+    outBuf.push_back(0x54);             // 'T'
+    outBuf.push_back(0x61);             // 'a'
+    outBuf.push_back(0x70);             // 'p'
+    outBuf.push_back(0x65);             // 'e'
+    outBuf.push_back(0x21);             // '!'
+    outBuf.push_back(0x1A);             // ^Z
+    outBuf.push_back(0x01);             // major version
+    outBuf.push_back(0x0D);             // minor version
+  }
+  if (!tapeName.empty()) {
     std::vector< unsigned char >  hdrBuf(17, 0x20);
     hdrBuf[0] = 0x00;
-    for (size_t i = 0; i < 10 && argv[2][i] != '\0'; i++)
-      hdrBuf[i + 1] = (unsigned char) argv[2][i];
-    hdrBuf[11] = (unsigned char) (inBuf.size() & 0xFF);
-    hdrBuf[12] = (unsigned char) (inBuf.size() >> 8);
-    hdrBuf[13] = 0x0A;                  // line number to start program at
-    hdrBuf[14] = 0x00;
-    hdrBuf[15] = (unsigned char) (inBuf.size() & 0xFF);
-    hdrBuf[16] = (unsigned char) (inBuf.size() >> 8);
-    tzxEncodeBlockN(outBuf, hdrBuf, true);
-    tzxEncodeBlockN(outBuf, inBuf, false);
-  }
-  for (int i = 4; (i + 1) < argc; i += 2) {
-    std::FILE *f = std::fopen(argv[i + 1], "rb");
-    inBuf.clear();
-    while (true) {
-      int     c = std::fgetc(f);
-      if (c == EOF)
-        break;
-      inBuf.push_back((unsigned char) (c & 0xFF));
+    const char  *p = tapeName.c_str();
+    for (size_t i = 0; i < 10; i++) {
+      char    c = *p;
+      if (c != '\0')
+        p++;
+      if (c >= 'a' && c <= 'z')
+        c = c - ('a' - 'A');
+      else if (!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || c == '_'))
+        c = ' ';
+      hdrBuf[i + 1] = (unsigned char) c;
     }
-    std::fclose(f);
-    char    *endp = (char *) 0;
-    unsigned short  blockID = (unsigned short) std::strtol(argv[i], &endp, 0);
-    tzxEncodeBlockT(outBuf, inBuf, blockID);
+    size_t  dataSize = loaderData.size();
+    if (dataSize < 1)
+      dataSize = inFileData[0].size();
+    hdrBuf[11] = (unsigned char) (dataSize & 0xFF);
+    hdrBuf[12] = (unsigned char) (dataSize >> 8);
+    if (!loaderFileName.empty()) {
+      hdrBuf[13] = 0x0A;                // line number to start program at
+      hdrBuf[14] = 0x00;
+    }
+    else {
+      hdrBuf[13] = 0x00;
+      hdrBuf[14] = 0x80;
+    }
+    hdrBuf[15] = (unsigned char) (dataSize & 0xFF);
+    hdrBuf[16] = (unsigned char) (dataSize >> 8);
+    if (!tapFormat)
+      tzxEncodeBlockN(outBuf, hdrBuf, true);
+    else
+      tapEncodeBlock(outBuf, hdrBuf, true);
   }
-  std::FILE *f = std::fopen(argv[1], "wb");
-  std::fwrite(&(outBuf.front()), sizeof(unsigned char), outBuf.size(), f);
-  std::fflush(f);
+  if (loaderData.size() > 0) {
+    if (!tapFormat)
+      tzxEncodeBlockN(outBuf, loaderData, false);
+    else
+      tapEncodeBlock(outBuf, loaderData, false);
+  }
+  for (size_t i = 0; i < inFileNames.size(); i++) {
+    unsigned short  blockID = 0;
+    if (i < inFileIDs.size()) {
+      char    *endp = (char *) 0;
+      blockID = (unsigned short) std::strtol(inFileIDs[i].c_str(), &endp, 0);
+    }
+    if (!tapFormat)
+      tzxEncodeBlockT(outBuf, inFileData[i], blockID);
+    else
+      tapEncodeBlock(outBuf, inFileData[i], false);
+  }
+  std::FILE *f = std::fopen(outFileName.c_str(), "wb");
+  if (!f) {
+    std::fprintf(stderr, " *** error opening output file \"%s\"\n",
+                 outFileName.c_str());
+    return -1;
+  }
+  if (std::fwrite(&(outBuf.front()), sizeof(unsigned char), outBuf.size(), f)
+      != outBuf.size() || std::fflush(f) != 0) {
+    std::fprintf(stderr, " *** error writing output file \"%s\"\n",
+                 outFileName.c_str());
+    return -1;
+  }
   std::fclose(f);
   return 0;
 }
