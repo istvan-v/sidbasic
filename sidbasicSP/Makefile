@@ -30,11 +30,11 @@ sidbintSP_tap.out: sidbintSP_tap.s sidsynth.bin cod47scr.bin
 
 sidsynth.bin: sidsynth.s dactable.s dactableYM.s
 	$(SJASM) $< $@
-	$(EPCOMPRESS) -raw -m2 -6 $@ $@
+	$(EPCOMPRESS) -raw -m2 $@ $@
 
 cod47scr.bin: cod47scr.s sidc64.scr
 	$(SJASM) $< $@
-	$(EPCOMPRESS) -raw -m2 -6 $@ $@
+	$(EPCOMPRESS) -raw -m2 $@ $@
 
 sidc64.scr: sidm2.scr $(C64CONV)
 	$(EPCOMPRESS) -raw -m2 -x $< $@
