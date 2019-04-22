@@ -1,6 +1,6 @@
 
 // sid_conv.cpp: utility to convert SID music to Enterprise 128 format
-// Copyright (C) 2017 Istvan Varga <istvanv@users.sourceforge.net>
+// Copyright (C) 2017-2019 Istvan Varga <istvanv@users.sourceforge.net>
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -21,8 +21,8 @@
 #include <cmath>
 #include <vector>
 
-#include "src/ep128emu.hpp"
-#include "util/epcompress/src/compress.hpp"
+#include "ep128emu.hpp"
+#include "compress.hpp"
 
 class SID_Channel {
  public:
